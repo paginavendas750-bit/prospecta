@@ -71,10 +71,14 @@ prog(10,'Localizando a cidade…');
  if(hit&&hit.osm_type=='relation')head='area('+(3600000000+ +hit.osm_id)+')->.a;';
  else if(hit){const[s,n,w,e]=hit.boundingbox;flt='('+s+','+w+','+n+','+e+')';approx=true}
  else{const cl=t=>t.replace(/[^\p{L}\p{N} ]/gu,'');head=q.region?'area["name"~"^'+cl(q.region)+'$",i]["boundary"="administrative"]->.s;area["name"~"^'+cl(q.city)+'$",i]["boundary"="administrative"](area.s)->.a;':'area["ISO3166-1"="'+q.cc.toUpperCase()+'"]->.c;area["name"~"^'+cl(q.city)+'$",i]["boundary"="administrative"](area.c)->.a;'}
- const lines=[];q.niches.forEach(n=>n.e.forEach(([k,re,nm])=>lines.push('nwr["'+k+'"~"'+re+'",i]'+(nm?'["name"~"'+nm+'",i]':'')+(k=='name'?'':'["name"]')+flt+';')));
- const qry='[out:json][timeout:60];'+head+'('+lines.join('')+');out center tags 400;';
- prog(35,'Consultando o Overpass (pode levar até 1 min)…');let d;
- for(const ep of['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){try{d=await http(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(qry)});break}catch(e){if(ep.includes('kumi'))throw e}}
+ const mk=(hd,fl,t)=>{const L=[];q.niches.forEach(n=>n.e.forEach(([k,re,nm])=>L.push('nwr["'+k+'"~"'+re+'"'+(k=='name'?',i':'')+']'+(nm?'["name"~"'+nm+'",i]':'')+(k=='name'?'':'["name"]')+fl+';')));return'[out:json][timeout:'+t+'];'+hd+'('+L.join('')+');out center tags 300;'};
+ const EP=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+ let bb=null;if(hit&&hit.boundingbox){const[s,n,w,e]=hit.boundingbox;bb='('+s+','+w+','+n+','+e+')'}
+ const at=[];if(head)at.push([EP[0],head,flt,0],[EP[1],head,flt,0]);if(bb)at.push([EP[2],'',bb,1],[EP[0],'',bb,1]);if(!at.length)at.push([EP[0],head,flt,0]);
+ let d,err;
+ for(let i=0;i<at.length;i++){const[ep,hd,fl,ab]=at[i];prog(30+i*12,'Consultando o Overpass (tentativa '+(i+1)+' de '+at.length+(ab?', modo rápido por região':'')+')…');
+  try{const r=await http(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(mk(hd,fl,25))},35000);if(r.remark&&/timeout|error/i.test(r.remark)&&!(r.elements||[]).length)throw new Error('Overpass: '+r.remark);d=r;if(ab)approx=true;break}catch(e){err=e}}
+ if(!d)throw err;
  prog(80,'Classificando e removendo duplicatas…');
  const out=[],ids=new Set(),keys=new Set(),ord=[...q.niches].sort((a,b)=>b.e.some(x=>x[2])-a.e.some(x=>x[2]));
  for(const el of d.elements||[]){const t=el.tags||{};if(!t.name)continue;
@@ -138,13 +142,13 @@ function cts(){const e=$('#cdl');if(!e)return;const c=CT.find(x=>nrm(x[0])==nrm(
 function regs(){setTimeout(cts,0);const c=CT.find(x=>x[0]==$('#co').value);$('#rl').innerHTML=((c&&RG[c[1]])||'').split(',').filter(Boolean).map(r=>`<option value="${r}">`).join('')}
 function chips(){$('#ch').innerHTML=N.map(n=>`<button class=chip aria-pressed="${chosen.has(n[0])}" onclick="chosen.has('${n[0]}')?chosen.delete('${n[0]}'):chosen.add('${n[0]}');chips()">${n[1]}</button>`).join('')+custom.map(c=>`<button class=chip aria-pressed="${chosen.has('x:'+c)}" onclick="chosen.has('x:${c}')?chosen.delete('x:${c}'):chosen.add('x:${c}');chips()">${esc(c)} (personalizado)</button>`).join('')}
 function addC(){const v=$('#cn').value.replace(/[^\p{L}\p{N} ]/gu,'').trim();if(!v)return;if(!custom.includes(v))custom.push(v);chosen.add('x:'+v);$('#cn').value='';chips()}
-function prog(p,t){$('#prog').innerHTML=`<div style="margin-top:14px"><div class=bar><div style="width:${p}%"></div></div><p class=mu>${esc(t)}</p></div>`}
+function prog(p,t){$('#prog').innerHTML=`<div style="margin-top:14px"><div class=bar><div style="width:${p}%"></div></div><p class=mu>${esc(t)} <span id=el></span></p></div>`}
 async function run(){const cn=$('#co').value.trim(),c=CT.find(x=>nrm(x[0])==nrm(cn)),city=$('#ci').value.trim();
  if(!c)return toast('Escolha um país da lista.');if(!city)return toast('Informe a cidade.');if(!chosen.size)return toast('Selecione ao menos um nicho.');
  if(Date.now()-last<8000)return toast('Aguarde alguns segundos entre pesquisas para não sobrecarregar a fonte gratuita.');
  const niches=[...chosen].map(id=>{if(id.startsWith('x:')){const t=id.slice(2);return{id,label:t,g:'def',e:[['name',t]]}}const n=N.find(x=>x[0]==id);return{id,label:n[1].replace(/ \(.*/,''),g:n[2],e:n[3]}});
  const q={cc:c[1],countryName:c[0],region:$('#rg').value.trim(),city,niches,limit:+$('#lm').value,pres:$('#pr').value,phone:$('#ph').checked};
- const ck=JSON.stringify(['v2',q.cc,q.region,nrm(city),[...chosen].sort()]);$('#go').disabled=true;R=[];meta=null;paintRes();
+ const ck=JSON.stringify(['v2',q.cc,q.region,nrm(city),[...chosen].sort()]);$('#go').disabled=true;R=[];meta=null;paintRes();const t0=Date.now(),iv=setInterval(()=>{const e=$('#el');if(e)e.textContent='· '+Math.round((Date.now()-t0)/1000)+'s'},1000);
  try{let hit=S.cache[ck],items,approx,fromCache=false;
   if(hit&&Date.now()-hit.t<864e5){items=hit.items;approx=hit.approx;fromCache=true;prog(70,'Usando resultado em cache (menos de 24 h).')}
   else{last=Date.now();const r=await providers.osm.search(q,prog);items=r.items;approx=r.approx;if(items.length){S.cache[ck]={t:Date.now(),items,approx};const ks=Object.keys(S.cache);if(ks.length>4)delete S.cache[ks.sort((a,b)=>S.cache[a].t-S.cache[b].t)[0]]}}
@@ -152,7 +156,7 @@ async function run(){const cn=$('#co').value.trim(),c=CT.find(x=>nrm(x[0])==nrm(
   const cnt=s=>R.filter(x=>x.status==s).length;tab=q.pres=='com'?'com_site':['sem_site','inconclusivo','com_site'].find(s=>cnt(s))||'sem_site';
   S.h.unshift({date:meta.date,city,country:c[0],niches:niches.map(n=>n.label).join(', '),found:R.length,sem:cnt('sem_site'),com:cnt('com_site')});S.h=S.h.slice(0,50);persist();prog(100,'Pesquisa concluída.')
  }catch(e){const m=e.user||(e.code==429?'A fonte gratuita limitou as requisições. Aguarde alguns minutos e tente de novo.':e.code==504||e.code==503?'O serviço Overpass está sobrecarregado ou indisponível. Tente novamente em instantes.':e.name=='AbortError'?'A consulta demorou demais. Tente com menos nichos ou uma cidade menor.':'Não consegui acessar o Nominatim/Overpass. Se você vê o app dentro do Claude (pré-visualização), conexões externas são bloqueadas: baixe o arquivo e abra com duplo clique no Chrome, Edge ou Firefox. Detalhe técnico: '+(e.message||e));$('#prog').innerHTML=`<div class="note er">${esc(m)}</div>`}
- $('#go').disabled=false;paintRes()}
+ clearInterval(iv);$('#go').disabled=false;paintRes()}
 function paintRes(){const b=$('#resbox');if(!b)return;if(!meta){b.innerHTML='';return}
  if(!R.length){b.innerHTML=`<div class=card><h2>Nenhum resultado</h2><p class=mu>${meta.total?'Existem '+meta.total+' estabelecimentos na fonte, mas nenhum passou nos filtros. Tente “Todas as empresas” ou remova o filtro de telefone.':'O OpenStreetMap não tem estabelecimentos desses nichos nessa cidade, ou a cidade não foi localizada: confira o nome e o estado (com acentos). Tente também outros nichos ou uma cidade maior.'}</p></div>`;return}
  const cnt=s=>R.filter(x=>x.status==s).length,l=R.map(U).filter(x=>x.status==tab);
